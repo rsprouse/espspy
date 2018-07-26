@@ -6,16 +6,16 @@ from collections import OrderedDict, namedtuple
 # Keys of preamble correspond to members of the 'preamble' struct in
 # esps.header.h
 # Values are the corresponding data types.
-preamble = OrderedDict({
-    'machine_code': 'l',
-    'check_code': 'l',
-    'data_offset': 'l',
-    'record_size': 'l',
-    'check': 'l',
-    'edr': 'l',            # YES if EDR_ESPS, NO if native
-    'align_pad_size': 'l', # alignment pad needed for some SD files
-    'foreign_hd': 'l'      # pointer to foreign header, -1 if
-})
+preamble = OrderedDict([
+    ('machine_code', 'l'),
+    ('check_code', 'l'),
+    ('data_offset', 'l'),
+    ('record_size', 'l'),
+    ('check', 'l'),
+    ('edr', 'l'),            # YES if EDR_ESPS, NO if native
+    ('align_pad_size', 'l'), # alignment pad needed for some SD files
+    ('foreign_hd', 'l')      # pointer to foreign header, -1 if
+])
 EspsPreamble = namedtuple('EspsPreamble', ' '.join(preamble.keys()))
 _preamble_fmt = ''.join(preamble.values())
 
@@ -23,62 +23,62 @@ _preamble_fmt = ''.join(preamble.values())
 # esps/header.h.
 # Values are the corresponding data types.
 # Note that 'pad1' can be excluded at compile time in header.h.
-fixpart = OrderedDict({
-    'type': 'h',         # file type
-    'pad1': 'h',
-    'check': 'l',        # check field
-    'date': '26s',       # file creation date
-    'hdvers': '8s',      # header version
-    'prog': '16s',       # program name
-    'vers': '8s',        # prog version
-    'progdate': '26s',   # prog compile date
-    'ndrec': 'l',        # number of data records
-    'tag': 'h',          # YES if data has tag
-    'nd1': 'h',          # used for reading old files only
-    'ndouble': 'l',      # number of doubles
-    'nfloat': 'l',       # number of floats
-    'nlong': 'l',        # number of longs
-    'nshort': 'l',       # number of shorts
-    'nchar': 'l',        # number of chars
-    'fixpartsiz': 'l',   # fixed header size
-    'hsize': 'l',        # total header size
-    'user': '8s',        # user name
+fixpart = OrderedDict([
+    ('type', 'h'),         # file type
+    ('pad1', 'h'),
+    ('check', 'l'),        # check field
+    ('date', '26s'),       # file creation date
+    ('hdvers', '8s'),      # header version
+    ('prog', '16s'),       # program name
+    ('vers', '8s'),        # prog version
+    ('progdate', '26s'),   # prog compile date
+    ('ndrec', 'l'),        # number of data records
+    ('tag', 'h'),          # YES if data has tag
+    ('nd1', 'h'),          # used for reading old files only
+    ('ndouble', 'l'),      # number of doubles
+    ('nfloat', 'l'),       # number of floats
+    ('nlong', 'l'),        # number of longs
+    ('nshort', 'l'),       # number of shorts
+    ('nchar', 'l'),        # number of chars
+    ('fixpartsiz', 'l'),   # fixed header size
+    ('hsize', 'l'),        # total header size
+    ('user', '8s'),        # user name
 # headers.c appears to read spares next and get edr and machine_code from
 # preamble
 # (in recursive_rh). What does it do on writing header?
-#    'edr': 'h',          # YES if EDR_ESPS, NO for native
-#    'machine_code': 'h', # machine that produced file
-    'spares': '20s'      # spares (easiest way to read 20 bytes as a unit) 
-})
+#    ('edr', 'h'),          # YES if EDR_ESPS, NO for native
+#    ('machine_code', 'h'), # machine that produced file
+    ('spares', '20s')      # spares (easiest way to read 20 bytes as a unit) 
+])
 EspsFixpart = namedtuple('EspsFixpart', fixpart.keys())
 _fixpart_fmt = ''.join(fixpart.values())
 
-feapart1 = OrderedDict({
-    'fea_type': 'h',         # fea file subtype
-    'segment_labeled': 'h',
-    'field_count': 'h',
-    'field_order': 'h',
-    'dummy': '36s', # I think this contains (double, triple) pointers to sizes,
+feapart1 = OrderedDict([
+    ('fea_type', 'h'),         # fea file subtype
+    ('segment_labeled', 'h'),
+    ('field_count', 'h'),
+    ('field_order', 'h'),
+    ('dummy', '36s'), # I think this contains (double, triple) pointers to sizes,
                     # ranks, dimens, types, enums, starts, derived, srcfields.
                     # The size to read is the number of bytes in nine (long)
                     # pointers.
-    'spares': '32s' # The size is number of bytes in 16 shorts.
-})
+    ('spares', '32s') # The size is number of bytes in 16 shorts.
+])
 EspsFeapart1 = namedtuple('EspsFeapart1', feapart1.keys())
 _feapart1_fmt = ''.join(feapart1.values())
 
-feapart2 = OrderedDict({
-    'ndouble': 'l',
-    'nfloat': 'l',
-    'nlong': 'l',
-    'nshort': 'l',
-    'nbyte': 'l',
-    'ndcplx': 'l',
-    'nfcplx': 'l',
-    'nlcplx': 'l',
-    'nscplx': 'l',
-    'nbcplx': 'l',
-})
+feapart2 = OrderedDict([
+    ('ndouble', 'l'),
+    ('nfloat', 'l'),
+    ('nlong', 'l'),
+    ('nshort', 'l'),
+    ('nbyte', 'l'),
+    ('ndcplx', 'l'),
+    ('nfcplx', 'l'),
+    ('nlcplx', 'l'),
+    ('nscplx', 'l'),
+    ('nbcplx', 'l'),
+])
 EspsFeapart2 = namedtuple('EspsFeapart2', feapart2.keys())
 _feapart2_fmt = ''.join(feapart2.values())
 
@@ -92,18 +92,18 @@ _feapart2_fmt = ''.join(feapart2.values())
 #define FEA_SPEC 7		/* spectrum file */
 #define FEA_SD 8                /* sampled-data file */
 #define FEA_FILT 9              /* filter file */
-EspsFeaType = OrderedDict({
-    0: {'subtype': 'NONE', 'hdr_func': 'read_fea_header'},
-    1: {'subtype': 'FEA_VQ'},     # vector quant file
-    2: {'subtype': 'FEA_ANA', 'hdr_func': 'read_fea_ana_header'}, # ana file
-    3: {'subtype': 'FEA_STAT'},   # statistics file
-    4: {'subtype': 'FEA_QHIST'},  # histogram file
-    5: {'subtype': 'FEA_DST'},    # quantized distortion file
-    6: {'subtype': 'FEA_2KB'},
-    7: {'subtype': 'FEA_SPEC'},   # spectrum file
-    8: {'subtype': 'FEA_SD', 'hdr_func': 'read_fea_sd_header'}, # sampled-data file
-    9: {'subtype': 'FEA_FILT'}   # filter file
-})
+EspsFeaType = OrderedDict([
+    (0, {'subtype': 'NONE', 'hdr_func': 'read_fea_header'}),
+    (1, {'subtype': 'FEA_VQ'}),     # vector quant file
+    (2, {'subtype': 'FEA_ANA', 'hdr_func': 'read_fea_ana_header'}), # ana file
+    (3, {'subtype': 'FEA_STAT'}),   # statistics file
+    (4, {'subtype': 'FEA_QHIST'}),  # histogram file
+    (5, {'subtype': 'FEA_DST'}),    # quantized distortion file
+    (6, {'subtype': 'FEA_2KB'}),
+    (7, {'subtype': 'FEA_SPEC'}),   # spectrum file
+    (8, {'subtype': 'FEA_SD', 'hdr_func': 'read_fea_sd_header'}), # sampled-data file
+    (9, {'subtype': 'FEA_FILT'}),  # filter file
+])
 
 # The ESPS variable header codes are defined in header.h.
 #define PT_ENDPAR	0		/* codes for variable items */
@@ -123,24 +123,24 @@ EspsFeaType = OrderedDict({
 #define PT_REFHD	14
 #define PT_CWD		15
 #define PT_MAX		15		/* change as we add codes */
-EspsVarheadType = OrderedDict({
-    0: {'subtype': 'PT_ENDPAR', 'is_string': False},
-    1: {'subtype': 'PT_SOURCE', 'is_string': True, 'fld': 'source'},
-    2: {'subtype': 'PT_TYPTXT', 'is_string': True, 'fld': 'typtxt'},
-    3: {'subtype': 'PT_REFER', 'is_string': True, 'fld': 'refer'},
-    4: {'subtype': 'PT_HEADER', 'is_string': False},
-    5: {'subtype': 'PT_PRE', 'is_string': False},
-    6: {'subtype': 'PT_FILTER', 'is_string': False},
-    7: {'subtype': 'PT_PRIOR', 'is_string': False},
-    8: {'subtype': 'PT_WEIGHT', 'is_string': False},
-    9: {'subtype': 'PT_PREFILTER', 'is_string': False},
-    10: {'subtype': 'PT_LPF', 'is_string': False},
-    11: {'subtype': 'PT_COMMENT', 'is_string': True, 'fld': 'comment'},
-    12: {'subtype': 'PT_DEEMP', 'is_string': False},
-    13: {'subtype': 'PT_GENHD', 'is_string': True},
-    14: {'subtype': 'PT_REFHD', 'is_string': False},
-    15: {'subtype': 'PT_CWD', 'is_string': True, 'fld': 'current_path'},
-})
+EspsVarheadType = OrderedDict([
+    (0, {'subtype': 'PT_ENDPAR', 'is_string': False}),
+    (1, {'subtype': 'PT_SOURCE', 'is_string': True, 'fld': 'source'}),
+    (2, {'subtype': 'PT_TYPTXT', 'is_string': True, 'fld': 'typtxt'}),
+    (3, {'subtype': 'PT_REFER', 'is_string': True, 'fld': 'refer'}),
+    (4, {'subtype': 'PT_HEADER', 'is_string': False}),
+    (5, {'subtype': 'PT_PRE', 'is_string': False}),
+    (6, {'subtype': 'PT_FILTER', 'is_string': False}),
+    (7, {'subtype': 'PT_PRIOR', 'is_string': False}),
+    (8, {'subtype': 'PT_WEIGHT', 'is_string': False}),
+    (9, {'subtype': 'PT_PREFILTER', 'is_string': False}),
+    (10, {'subtype': 'PT_LPF', 'is_string': False}),
+    (11, {'subtype': 'PT_COMMENT', 'is_string': True, 'fld': 'comment'}),
+    (12, {'subtype': 'PT_DEEMP', 'is_string': False}),
+    (13, {'subtype': 'PT_GENHD', 'is_string': True}),
+    (14, {'subtype': 'PT_REFHD', 'is_string': False}),
+    (15, {'subtype': 'PT_CWD', 'is_string': True, 'fld': 'current_path'}),
+])
 
 # The ESPS datatype codes are defined in esps.h.
 #define DOUBLE 1
@@ -159,37 +159,37 @@ EspsVarheadType = OrderedDict({
 #define SHORT_CPLX 14
 #define BYTE_CPLX 15
 # TODO: What do we do about the empty types?
-EspsDtype = OrderedDict({
-    1: 'd', # DOUBLE
-    2: 'f', # FLOAT
-    3: 'l', # LONG
-    4: 'h', # SHORT
-    5: 's', # CHAR
-    6: None,  # UNDEF
-    7: 'h',  # CODED
-    8: 's', # BYTE
-    9: 's', # EFILE
-    10: 's', # AFILE
-    11: None, # DOUBLE_CPLX
-    12: None, # FLOAT_CPLX
-    13: None, # LONG_CPLX
-    14: None, # SHORT_CPLX
-    15: None, # BYTE_CPLX
-})
+EspsDtype = OrderedDict([
+    (1, 'd'), # DOUBLE
+    (2, 'f'), # FLOAT
+    (3, 'l'), # LONG
+    (4, 'h'), # SHORT
+    (5, 's'), # CHAR
+    (6, None),  # UNDEF
+    (7, 'h'),  # CODED
+    (8, 's'), # BYTE
+    (9, 's'), # EFILE
+    (10, 's'), # AFILE
+    (11, None), # DOUBLE_CPLX
+    (12, None), # FLOAT_CPLX
+    (13, None), # LONG_CPLX
+    (14, None), # SHORT_CPLX
+    (15, None), # BYTE_CPLX
+])
 
 # Fields found in .fea file data records.
-EspsFeaDtype = OrderedDict({
-    'ndouble': 'd',
-    'ndcplx': 'd',
-    'nfloat': 'f',
-    'nfcplx': 'f',
-    'nlong': 'l',
-    'nlcplx': 'l',
-    'nshort': 'h',
-    'nscplx': 'h',
-    'nbyte': 's',
-    'nbcplx': 's',
-})
+EspsFeaDtype = OrderedDict([
+    ('ndouble', 'd'),
+    ('ndcplx', 'd'),
+    ('nfloat', 'f'),
+    ('nfcplx', 'f'),
+    ('nlong', 'l'),
+    ('nlcplx', 'l'),
+    ('nshort', 'h'),
+    ('nscplx', 'h'),
+    ('nbyte', 's'),
+    ('nbcplx', 's'),
+])
 
 class EspsVarhead(object):
     def __init__(self):
@@ -221,6 +221,7 @@ class EspsFeaReader(object):
         self.columns = None
         if self.fname != None and self.open_mode != None:
             self.read_header()
+# TODO: use columns or remove this attribute
         self.columns=columns
         self._data = None
         self._fromfile_dtype = None
@@ -431,12 +432,7 @@ class EspsFeaReader(object):
             self.fh.read(struct.calcsize(sfmt))
         )[0]  #.replace(b'\x00', b'').decode('ascii')
 # TODO: why does this choke? it gets char 128
-        print('read string', s)
         return s
-
-    def read_and_drop_long(self):
-        '''Read a long from fh. Don't do anything with it.'''
-        self.fh.read(4)
 
     def read_genhd(self):
         '''Read generic header.'''
@@ -491,6 +487,10 @@ class EspsFeaReader(object):
                         self.fea_type
                     )
                     raise RuntimeError(msg)
+        else:
+            raise RuntimeError('Do not know how to read type {:}.'.format(
+                self.fixpart.type
+            ))
 
 class EspsFormantReader(EspsFeaReader):
     '''A class for reading ESPS .fb files produced by formant and rformant
