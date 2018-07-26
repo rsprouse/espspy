@@ -434,10 +434,6 @@ class EspsFeaReader(object):
 # TODO: why does this choke? it gets char 128
         return s
 
-    def read_and_drop_long(self):
-        '''Read a long from fh. Don't do anything with it.'''
-        self.fh.read(4)
-
     def read_genhd(self):
         '''Read generic header.'''
         sz = struct.unpack(self.byte_order + 'i', self.fh.read(4))[0]
