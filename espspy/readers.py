@@ -491,6 +491,10 @@ class EspsFeaReader(object):
                         self.fea_type
                     )
                     raise RuntimeError(msg)
+        else:
+            raise RuntimeError('Do not know how to read type {:}.'.format(
+                self.fixpart.type
+            ))
 
 class EspsFormantReader(EspsFeaReader):
     '''A class for reading ESPS .fb files produced by formant and rformant
