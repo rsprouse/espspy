@@ -520,7 +520,7 @@ commands.'''
 # in the common part of the header and the feapart can differ. Figure out
 # whether this implementation is correct for all situations.
 # TODO: check for other dtype than ndouble and throw error (or handle) if found
-        if self._fromfile_dtype is None or self._fromfile_dtype == ['']:
+        if self._fromfile_dtype is None or self._fromfile_dtype == []:
             self._fromfile_dtype = []
             if self.feapart2.ndouble % 2 != 0:
                 raise RuntimeError('Found odd number of ndouble.')
