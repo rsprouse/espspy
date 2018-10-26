@@ -100,7 +100,7 @@ EspsFeaType = OrderedDict([
     (4, {'subtype': 'FEA_QHIST'}),  # histogram file
     (5, {'subtype': 'FEA_DST'}),    # quantized distortion file
     (6, {'subtype': 'FEA_2KB'}),
-    (7, {'subtype': 'FEA_SPEC'}),   # spectrum file
+    (7, {'subtype': 'FEA_SPEC', 'hdr_func': 'read_fea_header'}),   # spectrum file
     (8, {'subtype': 'FEA_SD', 'hdr_func': 'read_fea_sd_header'}), # sampled-data file
     (9, {'subtype': 'FEA_FILT'}),  # filter file
 ])
@@ -444,8 +444,7 @@ class EspsFeaReader(object):
             msg = 'fea type {:d} not implemented in read_genhd.'.format(type)
             raise NotImplementedError(msg)
         elif typ == 7: # CODED
-            msg = 'CODED type not implemented in read_genhd. See lines 362-382 of headers.c.'
-            raise NotImplementedError(msg)
+            val = self.read_codes()
         else:
             vfmt = '{:}{:d}{:}'.format(self.byte_order, sz, EspsDtype[typ])
             val = struct.unpack(
@@ -455,6 +454,20 @@ class EspsFeaReader(object):
             if EspsDtype[typ] == 's':
                 val = val.replace(b'\x00', b'').decode('ascii')
         return val
+
+    def read_codes(self):
+        '''Read 'coded' header value.'''
+        codes = {}
+        n = 0
+        lngth = struct.unpack(self.byte_order + 'h', self.fh.read(2))[0]
+        while lngth != 0:
+            codefmt = '{:d}s'.format(lngth)
+            codes[n] = struct.unpack(
+                codefmt, self.fh.read(struct.calcsize(codefmt))
+            )[0].replace(b'\x00', b'').decode('ascii')
+            lngth = struct.unpack('h', self.fh.read(struct.calcsize('h')))[0]
+            n += 1
+        return codes
 
     def read_fea_ana_header(self):
         '''Read header of a FEA_ANA file.'''
@@ -491,6 +504,64 @@ class EspsFeaReader(object):
             raise RuntimeError('Do not know how to read type {:}.'.format(
                 self.fixpart.type
             ))
+
+class EspsSgramReader(EspsFeaReader):
+    '''A class for reading ESPS .fspec files produced by the sgram command.'''
+    def __init__(self, fname=None, columns=None, open_mode='rb', *args, **kwargs):
+        super(EspsSgramReader, self).__init__(fname=fname, columns=columns,
+            open_mode=open_mode, *args, **kwargs)
+        #self.data.insert(loc=0, column='t1', value=self.t1)
+
+    @property
+    def fromfile_dtype(self):
+        '''The dtypes for unpacking item records using np.fromfile().'''
+# TODO: Not sure this is right for all .fspec files.
+        if self._fromfile_dtype is None or self._fromfile_dtype == []:
+            self._fromfile_dtype = []
+            flds = []
+            try:
+                assert(self.feapart2.nfloat == 1)
+            except AssertionError:
+                sys.stderr.write('Unexpected number of floats.')
+                raise
+# TODO: check self.fixpart for tag=1 before adding 'tag' to flds? Note that
+# self.fixpart has 'tag', 'nfloat', and 'nchar' values whereas self.feapart2
+# has 'nfloat' and 'nbyte' values but no 'tag'.
+            flds.append(('tag', self.byte_order + 'u4'))
+            flds.append(('tot_power', self.byte_order + 'f4'))
+            flds.append(('re_spec_val', '{:d}B'.format(self.feapart2.nbyte)))
+            self._fromfile_dtype = np.dtype(flds)
+        return self._fromfile_dtype
+
+    @property
+    def data(self):
+        '''Return the data as a Pandas DataFrame.'''
+#        if self._data is None:
+        self.fh.seek(self.preamble.data_offset)
+#            self._data = pd.DataFrame.from_records(
+        return                np.fromfile(self.fh, self.fromfile_dtype)
+#            )
+# TODO: check against nframes?
+#        return self._data
+
+    @property
+    def sgram(self):
+        '''Return the spectrogram values.'''
+        return self.data[:]['re_spec_val'].T
+
+    @property
+    def power(self):
+        '''Return the power values.'''
+        return self.data[:]['tot_power']
+
+    @property
+    def tag(self):
+        '''Return the tag values.'''
+# TODO: What are the 'tag' values? Should this property have a better name?
+# The values seem to be related to the step size and I think indicates the
+# sample in the original audio file where the record is centered.
+# pplain reports this value as 'tag'.
+        return self.data[:]['tag']
 
 class EspsFormantReader(EspsFeaReader):
     '''A class for reading ESPS .fb files produced by formant and rformant
