@@ -191,6 +191,13 @@ EspsFeaDtype = OrderedDict([
     ('nbcplx', 's'),
 ])
 
+class EspsHeader(object):
+    def __init__(self, level=0):
+        self.level = level
+        self.fixpart = None
+        self.genhd = EspsGenhd()
+        self.variable = EspsVarhead()
+
 class EspsVarhead(object):
     def __init__(self):
         self.source = []
@@ -210,17 +217,18 @@ class EspsFeaReader(object):
             *args, **kwargs):
         super(EspsFeaReader, self).__init__()
         self._byte_order = None
-        self._ftype = None   # The file type (we only handle FEA file type 13)
-        self.genhd = EspsGenhd()
+        self.ftype = None   # The file type (we only handle FEA file type 13)
         self._fea_type = None
         self.fname = fname
         self.open_mode = open_mode
         self.fea = None
-        self.variable = EspsVarhead()
         self.fea_items = None
         self.columns = None
         if self.fname != None and self.open_mode != None:
-            self.read_header()
+            self.open_file()
+            self.byte_order  # Make sure _byte_order is assigned a value.
+            self.read_preamble()
+            self.hdr = self.recursive_rh()
 # TODO: use columns or remove this attribute
         self.columns=columns
         self._data = None
@@ -271,7 +279,7 @@ class EspsFeaReader(object):
     @property
     def genhd_fields(self):
         '''Return the list of fields found in the genhd property.'''
-        return list(vars(self.genhd).keys())
+        return list(vars(self.hdr.genhd).keys())
 
     @property
     def fea_type(self):
@@ -306,6 +314,13 @@ class EspsFeaReader(object):
         '''The format string for unpacking the first part of the fea header.'''
         return self._byte_order + _feapart2_fmt
 
+    def open_file(self):
+        '''Open the file for reading.'''
+        try:
+            self.fh = open(self.fname, self.open_mode)
+        except:
+            raise RuntimeError('Could not open fea file.')
+
     def read_preamble(self):
         '''Read the ESPS file preamble.'''
         self.fh.seek(0)
@@ -318,7 +333,7 @@ class EspsFeaReader(object):
     
     def read_fixpart(self):
         '''Read the fixed part of the ESPS header.'''
-        self.fixpart = EspsFixpart._make(
+        fixpart = EspsFixpart._make(
             struct.unpack(
                 self.fixpart_fmt,
                 self.fh.read(struct.calcsize(self.fixpart_fmt))
@@ -326,55 +341,61 @@ class EspsFeaReader(object):
         )
         stringified = {}
         for attr in ('date', 'hdvers', 'prog', 'vers', 'progdate', 'user'):
-            val = getattr(self.fixpart, attr)
+            val = getattr(fixpart, attr)
             stringified[attr] = val.replace(b'\x00', b'').decode('ascii')
-        self.fixpart = self.fixpart._replace(**stringified)
+        fixpart = fixpart._replace(**stringified)
+        return fixpart
 
-    def read_fea_header(self):
+    def read_fea_header(self, level=0):
         '''Read header of FT_FEA with no fea subtype.'''
 # TODO: combine feapart1 and feapart2
-        self.feapart1 = EspsFeapart1._make(
+        hdr = EspsHeader(level)
+        feapart1 = EspsFeapart1._make(
             struct.unpack(
                 self.feapart1_fmt,
                 self.fh.read(struct.calcsize(self.feapart1_fmt))
             )
         )
-        if self.feapart1.field_order != 0:
+        hdr.feapart1 = feapart1
+        if feapart1.field_order != 0:
             msg = 'Support for field_order YES not implemented.'
             raise NotImplementedError(msg)
-        size = self.feapart1.field_count
+        size = feapart1.field_count
         lfmt = '{:}{:d}l'.format(self.byte_order, size)
         hfmt = '{:}{:d}h'.format(self.byte_order, size)
-# TODO: these should not be stored directly in self; need different names
-        self.sizes = struct.unpack(lfmt, self.fh.read(struct.calcsize(lfmt)))
-        self.starts = struct.unpack(lfmt, self.fh.read(struct.calcsize(lfmt)))
-        self.ranks = struct.unpack(hfmt, self.fh.read(struct.calcsize(hfmt)))
-        self.types = struct.unpack(hfmt, self.fh.read(struct.calcsize(hfmt)))
-        self.names = []
-        self.dimens = []
-        self.srcfields = []
-        self.feapart2 = EspsFeapart2._make(
+# TODO: these should not be stored directly in hdr; need different names
+        hdr.sizes = struct.unpack(lfmt, self.fh.read(struct.calcsize(lfmt)))
+        hdr.starts = struct.unpack(lfmt, self.fh.read(struct.calcsize(lfmt)))
+        hdr.ranks = struct.unpack(hfmt, self.fh.read(struct.calcsize(hfmt)))
+        hdr.types = struct.unpack(hfmt, self.fh.read(struct.calcsize(hfmt)))
+        hdr.names = []
+        hdr.dimens = []
+        hdr.srcfields = []
+        feapart2 = EspsFeapart2._make(
             struct.unpack(
                 self.feapart2_fmt,
                 self.fh.read(struct.calcsize(self.feapart2_fmt))
             )
         )
-        self.derived = struct.unpack(hfmt, self.fh.read(struct.calcsize(hfmt)))
-        for rnk, typ in zip(self.ranks, self.types):
+        hdr.feapart2 = feapart2
+        hdr.derived = struct.unpack(hfmt, self.fh.read(struct.calcsize(hfmt)))
+        for rnk, typ in zip(hdr.ranks, hdr.types):
             slen = struct.unpack(self.byte_order + 'h', self.fh.read(2))[0]
             sfmt = '{:d}s'.format(slen)
-            self.names.append(
+            hdr.names.append(
                 struct.unpack(
                     sfmt,
                     self.fh.read(struct.calcsize(sfmt)))[0].decode('ascii')
             )
             if rnk != 0:
                 lfmt = '{:}{:d}l'.format(self.byte_order, rnk)
-                self.dimens.append(
+                hdr.dimens.append(
                     struct.unpack(lfmt, self.fh.read(struct.calcsize(lfmt)))[0]
                 )
             if typ == 7: # CODED defined in esps.h
                 # TODO: implement this from lines 1281-1302 in headers.c
+                # Note that read_coded() is implemented already and may be
+                # used to read the coded value.
                 raise NotImplementedError('CODED fea type not implemented.')
             slen = struct.unpack(self.byte_order + 'h', self.fh.read(2))[0]
             sfmt = '{:d}s'.format(slen)
@@ -387,7 +408,7 @@ class EspsFeaReader(object):
                         sfmt2,
                         self.fh.read(struct.calcsize(sfmt2)))[0].decode('ascii')
                 )
-            self.srcfields.append(flds)
+            hdr.srcfields.append(flds)
 
         # read variable part
         while True:
@@ -403,9 +424,13 @@ class EspsFeaReader(object):
                 break
             try:
                 if EspsVarheadType[code]['subtype'] == 'PT_GENHD':
-                    setattr(self.genhd, name, self.read_genhd())
+                    setattr(hdr.genhd, name, self.read_genhd())
+                elif EspsVarheadType[code]['subtype'] == 'PT_HEADER':
+                    break
+                    # TODO: recursive header reading is untested.
+                    #hdr.variable.srchead.append(self.recursive_rh(hdr.level+1))
                 elif EspsVarheadType[code]['is_string'] is True: # all other string types
-                    setattr(self.variable, EspsVarheadType[code]['fld'], name)
+                    setattr(hdr.variable, EspsVarheadType[code]['fld'], name)
                 else:
                 # TODO: I am hoping that the genhd fields, e.g. record_freq,
                 # start_time, come first, as they are the only ones we are
@@ -422,6 +447,7 @@ class EspsFeaReader(object):
                         code
                     )
                     raise RuntimeError(msg)
+        return hdr
 
     def _read_string(self, slen):
         '''Read a byte sequence of length slen into a Python string
@@ -444,7 +470,7 @@ class EspsFeaReader(object):
             msg = 'fea type {:d} not implemented in read_genhd.'.format(type)
             raise NotImplementedError(msg)
         elif typ == 7: # CODED
-            val = self.read_codes()
+            val = self.read_coded()
         else:
             vfmt = '{:}{:d}{:}'.format(self.byte_order, sz, EspsDtype[typ])
             val = struct.unpack(
@@ -455,7 +481,7 @@ class EspsFeaReader(object):
                 val = val.replace(b'\x00', b'').decode('ascii')
         return val
 
-    def read_codes(self):
+    def read_coded(self):
         '''Read 'coded' header value.'''
         codes = {}
         n = 0
@@ -467,28 +493,27 @@ class EspsFeaReader(object):
             )[0].replace(b'\x00', b'').decode('ascii')
             lngth = struct.unpack('h', self.fh.read(struct.calcsize('h')))[0]
             n += 1
-        return codes
+        key = struct.unpack('h', self.fh.read(struct.calcsize('h')))[0]
+        return codes[key]
 
     def read_fea_ana_header(self):
         '''Read header of a FEA_ANA file.'''
         print('fea_ana type')
 
-    def read_header(self):
+    def recursive_rh(self, level=0):
         '''Read the file header.'''
-        try:
-            self.fh = open(self.fname, self.open_mode)
-            self.byte_order
-        except:
-            raise RuntimeError('Could not open fea file.')
-        self.read_preamble()
-        self.read_fixpart()
-        if self.fixpart.type == 13:
+        if level == 0:
+            fixpart = self.read_fixpart()
+            self.ftype = fixpart.type
+        if self.ftype == 13:
             try:
                 hdr_func = getattr(
                     self,
                     EspsFeaType[self.fea_type]['hdr_func']
                 )
-                hdr_func()
+                hdr = hdr_func(level)
+                if level == 0:
+                    hdr.fixpart = fixpart
             except KeyError:
                 try:
                     msg = 'Reading of ESPS {:} files not implemented'.format(
@@ -502,15 +527,15 @@ class EspsFeaReader(object):
                     raise RuntimeError(msg)
         else:
             raise RuntimeError('Do not know how to read type {:}.'.format(
-                self.fixpart.type
+                self.ftype
             ))
+        return hdr
 
 class EspsSgramReader(EspsFeaReader):
     '''A class for reading ESPS .fspec files produced by the sgram command.'''
     def __init__(self, fname=None, columns=None, open_mode='rb', *args, **kwargs):
         super(EspsSgramReader, self).__init__(fname=fname, columns=columns,
             open_mode=open_mode, *args, **kwargs)
-        #self.data.insert(loc=0, column='t1', value=self.t1)
 
     @property
     def fromfile_dtype(self):
@@ -520,16 +545,18 @@ class EspsSgramReader(EspsFeaReader):
             self._fromfile_dtype = []
             flds = []
             try:
-                assert(self.feapart2.nfloat == 1)
+                assert(self.hdr.feapart2.nfloat == 1)
             except AssertionError:
                 sys.stderr.write('Unexpected number of floats.')
                 raise
-# TODO: check self.fixpart for tag=1 before adding 'tag' to flds? Note that
-# self.fixpart has 'tag', 'nfloat', and 'nchar' values whereas self.feapart2
+# TODO: check fixpart for tag=1 before adding 'tag' to flds? Note that
+# fixpart has 'tag', 'nfloat', and 'nchar' values whereas self.hdr.feapart2
 # has 'nfloat' and 'nbyte' values but no 'tag'.
             flds.append(('tag', self.byte_order + 'u4'))
             flds.append(('tot_power', self.byte_order + 'f4'))
-            flds.append(('re_spec_val', '{:d}B'.format(self.feapart2.nbyte)))
+            flds.append(
+                ('re_spec_val', '{:d}B'.format(self.hdr.feapart2.nbyte))
+            )
             self._fromfile_dtype = np.dtype(flds)
         return self._fromfile_dtype
 
@@ -563,6 +590,131 @@ class EspsSgramReader(EspsFeaReader):
 # pplain reports this value as 'tag'.
         return self.data[:]['tag']
 
+    @property
+    def sf(self):
+        '''Return the sf (sampling frequency) value.'''
+        return self.hdr.genhd.sf
+
+    @property
+    def window_type(self):
+        '''Return the window_type value.'''
+        return self.hdr.genhd.window_type
+
+    @property
+    def frmlen(self):
+        '''Return the frmlen value.'''
+        return self.hdr.genhd.frmlen
+
+    @property
+    def frame_meth(self):
+        '''Return the frame_meth value.'''
+        return self.hdr.genhd.frame_meth
+
+    @property
+    def freq_format(self):
+        '''Return the freq_format value.'''
+        return self.hdr.genhd.freq_format
+
+    @property
+    def record_freq(self):
+        '''Return the record_freq value.'''
+        return self.hdr.genhd.record_freq
+
+    @property
+    def start(self):
+        '''Return the start value.'''
+        return self.hdr.genhd.start
+
+    @property
+    def sgram_method(self):
+        '''Return the sgram_method value.'''
+        return self.hdr.genhd.sgram_method
+
+    @property
+    def fft_order(self):
+        '''Return the fft_order value.'''
+        return self.hdr.genhd.fft_order
+
+    @property
+    def fft_length(self):
+        '''Return the fft_length value.'''
+        return self.hdr.genhd.fft_length
+
+    @property
+    def spec_type(self):
+        '''Return the spec_type value.'''
+        return self.hdr.genhd.spec_type
+
+    @property
+    def step(self):
+        '''Return the step value.'''
+        return self.hdr.genhd.step
+
+    @property
+    def num_freqs(self):
+        '''Return the num_freqs value.'''
+        return self.hdr.genhd.num_freqs
+
+    @property
+    def pre_emphasis(self):
+        '''Return the pre_emphasis value.'''
+        return self.hdr.genhd.pre_emphasis
+
+    @property
+    def contin(self):
+        '''Return the contin value.'''
+        return self.hdr.genhd.contin
+
+    @property
+    def start_time(self):
+        '''Return the start_time value.'''
+        return self.hdr.genhd.start_time
+
+    @property
+    def bin_hz(self):
+        '''Return an array of the centers of the fft frequency bins in Hertz.'''
+        bins = np.arange(self.num_freqs + 1, dtype=float)
+        return bins * self.sf / self.fft_length
+
+    @property
+    def t1(self):
+        '''Return the timepoints of each spectral slice in sgram.'''
+        return self.start_time + (np.arange(len(self.data)) / self.record_freq)
+
+    def slice_extents(self, t1idx, t2idx, hz1idx, hz2idx):
+        '''Return sgram slice's extents suitable for use as imshow()'s
+        'extent' param.'''
+        tdelta = self.t1[1] - self.t1[0]
+        fdelta = self.bin_hz[1] - self.bin_hz[0]
+        return [
+            self.t1[t1idx] - tdelta/2,
+            self.t1[t2idx] + tdelta/2,
+            self.bin_hz[hz1idx] - fdelta/2,
+            self.bin_hz[hz2idx] + fdelta/2
+        ]
+
+    def sgram_slice(self, t1=0.0, t2=np.inf, hz1=0.0, hz2=np.inf):
+        '''Returns portion of spectrogram from time t1 to t2 and including
+        frequencies hz1 to hz2.'''
+        t1idx = (np.abs(self.t1 - t1)).argmin()
+        if t2 != np.inf:
+            t2idx = (np.abs(self.t1 - t2)).argmin()
+        else:
+            t2idx = len(self.t1) - 1
+        hz1idx = (np.abs(self.bin_hz - hz1)).argmin()
+        if hz2 != np.inf:
+            hz2idx = (np.abs(self.bin_hz - hz2)).argmin()
+        else:
+            hz2idx = self.num_freqs
+        times = self.t1[t1idx:t2idx]
+        freqs = self.bin_hz[hz1idx:hz2idx]
+        return (
+            self.sgram[hz1idx:hz2idx, t1idx:t2idx],
+            times,
+            freqs,
+            self.slice_extents(t1idx, t2idx, hz1idx, hz2idx)
+        )
+
 class EspsFormantReader(EspsFeaReader):
     '''A class for reading ESPS .fb files produced by formant and rformant
 commands.'''
@@ -573,11 +725,11 @@ commands.'''
 
     @property
     def record_freq(self):
-        return self.genhd.record_freq
+        return self.hdr.genhd.record_freq
 
     @property
     def start_time(self):
-        return self.genhd.start_time
+        return self.hdr.genhd.start_time
     
     @property
     def t1(self):
@@ -593,10 +745,10 @@ commands.'''
 # TODO: check for other dtype than ndouble and throw error (or handle) if found
         if self._fromfile_dtype is None or self._fromfile_dtype == []:
             self._fromfile_dtype = []
-            if self.feapart2.ndouble % 2 != 0:
+            if self.hdr.feapart2.ndouble % 2 != 0:
                 raise RuntimeError('Found odd number of ndouble.')
             flds = []
-            for sublist in [[n] * 4 for n in self.names]:
+            for sublist in [[n] * 4 for n in self.hdr.names]:
                 for i, item in enumerate(sublist):
                     flds.append('{:}{:d}'.format(item, i+1))
             self._fromfile_dtype = np.dtype(
