@@ -518,6 +518,11 @@ class EspsSgramReader(EspsFeaReader):
         # Read the data records.
         self._data = np.fromfile(self.fh, self.fromfile_dtype)
         self.check_data_read()
+        bins = np.arange(self.num_freqs + 1, dtype=float)
+        self._bins = bins * self.sf / self.fft_length
+        self._times = (np.arange(len(self._data)) / self.record_freq) + \
+                   self.start_time
+        self.data_view = self.set_data_view()
 
     @property
     def fromfile_dtype(self):
@@ -544,22 +549,56 @@ class EspsSgramReader(EspsFeaReader):
 
     @property
     def sgram(self):
-        '''Return the spectrogram values.'''
-        return self._data[:]['re_spec_val'].T
+        '''Return the spectrogram values of the current data view.'''
+        return self._data[:]['re_spec_val'][
+            self.data_view['t1idx']:self.data_view['t2idx'],
+            self.data_view['hz1idx']:self.data_view['hz2idx']
+        ].T
 
     @property
     def power(self):
-        '''Return the power values.'''
-        return self._data[:]['tot_power']
+        '''Return the power values of the current data view.'''
+        return self._data[:]['tot_power'][
+            self.data_view['t1idx']:self.data_view['t2idx'],
+            self.data_view['hz1idx']:self.data_view['hz2idx']
+        ]
 
     @property
     def tag(self):
-        '''Return the tag values.'''
+        '''Return the tag values of the current data view.'''
 # TODO: What are the 'tag' values? Should this property have a better name?
 # The values seem to be related to the step size and I think indicates the
 # sample in the original audio file where the record is centered.
 # pplain reports this value as 'tag'.
-        return self._data[:]['tag']
+        return self._data[:]['tag'][
+            self.data_view['t1idx']:self.data_view['t2idx'],
+            self.data_view['hz1idx']:self.data_view['hz2idx']
+        ]
+
+    @property
+    def bin_hz(self):
+        '''Return an array of the centers of the fft frequency bins in Hertz
+        of the current data view.'''
+        return self._bins[self.data_view['hz1idx']:self.data_view['hz2idx']]
+
+    @property
+    def times(self):
+        '''Return the timepoints of each spectral slice in sgram of the
+        current data view.'''
+        return self._times[self.data_view['t1idx']:self.data_view['t2idx']]
+
+    @property
+    def data_view_extent(self):
+        '''Return sgram slice's extents suitable for use as imshow()'s
+        'extent' param for current data view.'''
+        tdelta = self._times[1] - self._times[0]
+        fdelta = self._bins[1] - self._bins[0]
+        return [
+            self._times[self.data_view['t1idx']] - tdelta/2,
+            self._times[self.data_view['t2idx']] + tdelta/2,
+            self._bins[self.data_view['hz1idx']] - fdelta/2,
+            self._bins[self.data_view['hz2idx']] + fdelta/2
+        ]
 
     @property
     def sf(self):
@@ -641,50 +680,23 @@ class EspsSgramReader(EspsFeaReader):
         '''Return the start_time value.'''
         return self.hdr.genhd.start_time
 
-    @property
-    def bin_hz(self):
-        '''Return an array of the centers of the fft frequency bins in Hertz.'''
-        bins = np.arange(self.num_freqs + 1, dtype=float)
-        return bins * self.sf / self.fft_length
-
-    @property
-    def t1(self):
-        '''Return the timepoints of each spectral slice in sgram.'''
-        return self.start_time + (np.arange(len(self._data)) / self.record_freq)
-
-    def slice_extents(self, t1idx, t2idx, hz1idx, hz2idx):
-        '''Return sgram slice's extents suitable for use as imshow()'s
-        'extent' param.'''
-        tdelta = self.t1[1] - self.t1[0]
-        fdelta = self.bin_hz[1] - self.bin_hz[0]
-        return [
-            self.t1[t1idx] - tdelta/2,
-            self.t1[t2idx] + tdelta/2,
-            self.bin_hz[hz1idx] - fdelta/2,
-            self.bin_hz[hz2idx] + fdelta/2
-        ]
-
-    def sgram_slice(self, t1=0.0, t2=np.inf, hz1=0.0, hz2=np.inf):
-        '''Returns portion of spectrogram from time t1 to t2 and including
-        frequencies hz1 to hz2.'''
-        t1idx = (np.abs(self.t1 - t1)).argmin()
+    def set_data_view(self, t1=0.0, t2=np.inf, hz1=0.0, hz2=np.inf):
+        '''Set the time and frequency ranges that determine the values
+        returned by data-related properties.'''
+        t1idx = (np.abs(self._times - t1)).argmin()
         if t2 != np.inf:
-            t2idx = (np.abs(self.t1 - t2)).argmin()
+            t2idx = (np.abs(self._times - t2)).argmin()
         else:
-            t2idx = len(self.t1) - 1
-        hz1idx = (np.abs(self.bin_hz - hz1)).argmin()
+            t2idx = len(self._times) - 1
+        hz1idx = (np.abs(self._bins - hz1)).argmin()
         if hz2 != np.inf:
-            hz2idx = (np.abs(self.bin_hz - hz2)).argmin()
+            hz2idx = (np.abs(self._bins - hz2)).argmin()
         else:
             hz2idx = self.num_freqs
-        times = self.t1[t1idx:t2idx]
-        freqs = self.bin_hz[hz1idx:hz2idx]
-        return (
-            self.sgram[hz1idx:hz2idx, t1idx:t2idx],
-            times,
-            freqs,
-            self.slice_extents(t1idx, t2idx, hz1idx, hz2idx)
-        )
+        self.data_view = {
+            't1idx': t1idx, 't2idx': t2idx,
+            'hz1idx': hz1idx, 'hz2idx': hz2idx
+        }
 
 class EspsFormantReader(EspsFeaReader):
     '''A class for reading ESPS .fb files produced by formant and rformant
@@ -696,7 +708,7 @@ commands.'''
         self._data = np.fromfile(self.fh, self.fromfile_dtype)
         self.check_data_read()
         self.df = pd.DataFrame.from_records(self._data)
-        self.df.insert(loc=0, column='t1', value=self.t1)
+        self.df.insert(loc=0, column='times', value=self.times)
 
     @property
     def record_freq(self):
@@ -707,7 +719,7 @@ commands.'''
         return self.hdr.genhd.start_time
     
     @property
-    def t1(self):
+    def times(self):
         frame_period = 1 / self.record_freq
         return (np.arange(len(self._data)) * frame_period) + self.start_time
 
