@@ -420,17 +420,6 @@ class EspsFeaReader(object):
                     raise RuntimeError(msg)
         return hdr
 
-#    def _read_string(self, slen):
-#        '''Read a byte sequence of length slen into a Python string
-#        from current read position of file handle.'''
-#        sfmt = '{:d}s'.format(slen)
-#        s = struct.unpack(
-#            sfmt,
-#            self.fh.read(struct.calcsize(sfmt))
-#        )[0]  #.replace(b'\x00', b'').decode('ascii')
-## TODO: why does this choke? it gets char 128
-#        return s
-
     def read_genhd(self):
         '''Read generic header.'''
         sz = struct.unpack(self.byte_order + 'i', self.fh.read(4))[0]
