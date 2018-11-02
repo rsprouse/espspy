@@ -214,7 +214,7 @@ class EspsGenhd(object):
 
 class EspsFeaReader(object):
     """A class for reading ESPS FEA files."""
-    def __init__(self, infile=None, columns=None, open_mode='rb',
+    def __init__(self, infile=None, open_mode='rb',
             *args, **kwargs):
         super(EspsFeaReader, self).__init__()
         self.byte_order = None
@@ -224,7 +224,6 @@ class EspsFeaReader(object):
         self.fea = None
         self.fea_items = None
         self._fromfile_dtype = None
-        self.columns = None
         if infile != None and self.open_mode != None:
             try:
                 self.fh = open(infile, self.open_mode)
@@ -249,8 +248,6 @@ class EspsFeaReader(object):
             # read position of the filehandle at the start of the data.
             while self.fh.tell() < self.preamble.data_offset:
                 self.fh.read(1)
-# TODO: use columns or remove this attribute
-        self.columns=columns
         self._data = None
         self._fromfile_dtype = None
 
@@ -515,8 +512,8 @@ class EspsFeaReader(object):
 
 class EspsSgramReader(EspsFeaReader):
     '''A class for reading ESPS .fspec files produced by the sgram command.'''
-    def __init__(self, infile=None, columns=None, open_mode='rb', *args, **kwargs):
-        super(EspsSgramReader, self).__init__(infile=infile, columns=columns,
+    def __init__(self, infile=None, open_mode='rb', *args, **kwargs):
+        super(EspsSgramReader, self).__init__(infile=infile,
             open_mode=open_mode, *args, **kwargs)
         # Read the data records.
         self._data = np.fromfile(self.fh, self.fromfile_dtype)
@@ -692,8 +689,8 @@ class EspsSgramReader(EspsFeaReader):
 class EspsFormantReader(EspsFeaReader):
     '''A class for reading ESPS .fb files produced by formant and rformant
 commands.'''
-    def __init__(self, infile=None, columns=None, open_mode='rb', *args, **kwargs):
-        super(EspsFormantReader, self).__init__(infile=infile, columns=columns,
+    def __init__(self, infile=None, open_mode='rb', *args, **kwargs):
+        super(EspsFormantReader, self).__init__(infile=infile,
             open_mode=open_mode, *args, **kwargs)
         # Read the data records.
         self._data = np.fromfile(self.fh, self.fromfile_dtype)
