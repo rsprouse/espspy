@@ -1,3 +1,4 @@
+import os
 import struct
 import numpy as np
 import pandas as pd
@@ -222,6 +223,7 @@ class EspsFeaReader(object):
         self.open_mode = open_mode
         self.fea = None
         self.fea_items = None
+        self._fromfile_dtype = None
         self.columns = None
         if infile != None and self.open_mode != None:
             try:
@@ -234,7 +236,19 @@ class EspsFeaReader(object):
             self.fixpart_fmt = self.byte_order + _fixpart_fmt
             self.feapart1_fmt = self.byte_order + _feapart1_fmt
             self.feapart2_fmt = self.byte_order + _feapart2_fmt
+            # TODO: recursion doesn't actually work. Only the top-level
+            # header is returned.
             self.hdr = self.recursive_rh()
+            # Fast-forward to data section. We do not use seek() in case we
+            # are reading from a pipe since pipes are not seekable.
+            # TODO: In limited testing, the data offset value in the preamble
+            # was 0 for an esps utility (sgram) sending its output to stdout
+            # ('-'), and this fast-forwarding doesn't know where to stop.
+            # It appears the solution will be to fully implement reading of
+            # the header, including recursion, which should leave the current
+            # read position of the filehandle at the start of the data.
+            while self.fh.tell() < self.preamble.data_offset:
+                self.fh.read(1)
 # TODO: use columns or remove this attribute
         self.columns=columns
         self._data = None
@@ -258,18 +272,6 @@ class EspsFeaReader(object):
         pass
 
     @property
-    def data(self):
-        '''Return the data as a Pandas DataFrame.'''
-        if self._data is None:
-            while self.fh.tell() < self.preamble.data_offset:
-                self.fh.read(1)
-            self._data = pd.DataFrame.from_records(
-                np.fromfile(self.fh, self.fromfile_dtype)
-            )
-# TODO: check against nframes?
-        return self._data
-
-    @property
     def genhd_fields(self):
         '''Return the list of fields found in the genhd property.'''
         return list(vars(self.hdr.genhd).keys())
@@ -278,6 +280,9 @@ class EspsFeaReader(object):
     def fea_type(self):
         '''The FEA file subtype. The file handle cursor must be in the
         correct location the first time this property is accessed.'''
+        # TODO: calls to seek() are illegal when the input file handle
+        # is reading from a pipe, and this will have to be fixed to read
+        # from stdout.
         if self._fea_type is None:
             cur = self.fh.tell()
             self._fea_type = struct.unpack(
@@ -501,11 +506,21 @@ class EspsFeaReader(object):
             ))
         return hdr
 
+    def check_data_read(self):
+        '''Perform checks on whether data was read correctly.'''
+        # After reading, filehandle should be at the end of the file.
+        assert(self.fh.tell() == os.stat(self.fh.name).st_size)
+        # TODO: additional checks against nframes or other header values
+        # to see that records were read correctly.
+
 class EspsSgramReader(EspsFeaReader):
     '''A class for reading ESPS .fspec files produced by the sgram command.'''
     def __init__(self, infile=None, columns=None, open_mode='rb', *args, **kwargs):
         super(EspsSgramReader, self).__init__(infile=infile, columns=columns,
             open_mode=open_mode, *args, **kwargs)
+        # Read the data records.
+        self._data = np.fromfile(self.fh, self.fromfile_dtype)
+        self.check_data_read()
 
     @property
     def fromfile_dtype(self):
@@ -531,23 +546,14 @@ class EspsSgramReader(EspsFeaReader):
         return self._fromfile_dtype
 
     @property
-    def data(self):
-        '''Return the data records.'''
-        if self._data is None:
-            self.fh.seek(self.preamble.data_offset)
-            self._data = np.fromfile(self.fh, self.fromfile_dtype)
-# TODO: check against nframes?
-        return self._data
-
-    @property
     def sgram(self):
         '''Return the spectrogram values.'''
-        return self.data[:]['re_spec_val'].T
+        return self._data[:]['re_spec_val'].T
 
     @property
     def power(self):
         '''Return the power values.'''
-        return self.data[:]['tot_power']
+        return self._data[:]['tot_power']
 
     @property
     def tag(self):
@@ -556,7 +562,7 @@ class EspsSgramReader(EspsFeaReader):
 # The values seem to be related to the step size and I think indicates the
 # sample in the original audio file where the record is centered.
 # pplain reports this value as 'tag'.
-        return self.data[:]['tag']
+        return self._data[:]['tag']
 
     @property
     def sf(self):
@@ -647,7 +653,7 @@ class EspsSgramReader(EspsFeaReader):
     @property
     def t1(self):
         '''Return the timepoints of each spectral slice in sgram.'''
-        return self.start_time + (np.arange(len(self.data)) / self.record_freq)
+        return self.start_time + (np.arange(len(self._data)) / self.record_freq)
 
     def slice_extents(self, t1idx, t2idx, hz1idx, hz2idx):
         '''Return sgram slice's extents suitable for use as imshow()'s
@@ -689,7 +695,11 @@ commands.'''
     def __init__(self, infile=None, columns=None, open_mode='rb', *args, **kwargs):
         super(EspsFormantReader, self).__init__(infile=infile, columns=columns,
             open_mode=open_mode, *args, **kwargs)
-        self.data.insert(loc=0, column='t1', value=self.t1)
+        # Read the data records.
+        self._data = np.fromfile(self.fh, self.fromfile_dtype)
+        self.check_data_read()
+        self.df = pd.DataFrame.from_records(self._data)
+        self.df.insert(loc=0, column='t1', value=self.t1)
 
     @property
     def record_freq(self):
@@ -702,7 +712,7 @@ commands.'''
     @property
     def t1(self):
         frame_period = 1 / self.record_freq
-        return (np.arange(len(self.data)) * frame_period) + self.start_time
+        return (np.arange(len(self._data)) * frame_period) + self.start_time
 
     @property
     def fromfile_dtype(self):
