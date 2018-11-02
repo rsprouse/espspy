@@ -213,21 +213,27 @@ class EspsGenhd(object):
 
 class EspsFeaReader(object):
     """A class for reading ESPS FEA files."""
-    def __init__(self, fname=None, columns=None, open_mode='rb',
+    def __init__(self, infile=None, columns=None, open_mode='rb',
             *args, **kwargs):
         super(EspsFeaReader, self).__init__()
-        self._byte_order = None
+        self.byte_order = None
         self.ftype = None   # The file type (we only handle FEA file type 13)
         self._fea_type = None
-        self.fname = fname
         self.open_mode = open_mode
         self.fea = None
         self.fea_items = None
         self.columns = None
-        if self.fname != None and self.open_mode != None:
-            self.open_file()
-            self.byte_order  # Make sure _byte_order is assigned a value.
-            self.read_preamble()
+        if infile != None and self.open_mode != None:
+            try:
+                self.fh = open(infile, self.open_mode)
+            except TypeError:  # An open filehandle was passed in. 
+                self.fh = infile
+            except:
+                raise RuntimeError('Could not open fea file.')
+            self.preamble = self.read_preamble()
+            self.fixpart_fmt = self.byte_order + _fixpart_fmt
+            self.feapart1_fmt = self.byte_order + _feapart1_fmt
+            self.feapart2_fmt = self.byte_order + _feapart2_fmt
             self.hdr = self.recursive_rh()
 # TODO: use columns or remove this attribute
         self.columns=columns
@@ -255,26 +261,13 @@ class EspsFeaReader(object):
     def data(self):
         '''Return the data as a Pandas DataFrame.'''
         if self._data is None:
-            self.fh.seek(self.preamble.data_offset)
+            while self.fh.tell() < self.preamble.data_offset:
+                self.fh.read(1)
             self._data = pd.DataFrame.from_records(
                 np.fromfile(self.fh, self.fromfile_dtype)
             )
 # TODO: check against nframes?
         return self._data
-
-    @property
-    def byte_order(self):
-        '''The byte order of the file.'''
-        if self._byte_order is None:
-            cur = self.fh.tell()
-            self.fh.seek(16)
-            magic = self.fh.read(4)
-            if magic == b'\x00\x00j\x1a':    # big endian
-                self._byte_order = '>'
-            elif magic == b'\x1aj\x00\x00':  # little endian
-                self._byte_order = '<'
-            self.fh.seek(cur)
-        return self._byte_order
 
     @property
     def genhd_fields(self):
@@ -294,43 +287,19 @@ class EspsFeaReader(object):
             self.fh.seek(cur)
         return self._fea_type
 
-    @property
-    def preamble_fmt(self):
-        '''The format string for unpacking the preamble part of the header.'''
-        return self._byte_order + _preamble_fmt
-
-    @property
-    def fixpart_fmt(self):
-        '''The format string for unpacking the fixed part of the header.'''
-        return self._byte_order + _fixpart_fmt
-
-    @property
-    def feapart1_fmt(self):
-        '''The format string for unpacking the first part of the fea header.'''
-        return self._byte_order + _feapart1_fmt
-
-    @property
-    def feapart2_fmt(self):
-        '''The format string for unpacking the first part of the fea header.'''
-        return self._byte_order + _feapart2_fmt
-
-    def open_file(self):
-        '''Open the file for reading.'''
-        try:
-            self.fh = open(self.fname, self.open_mode)
-        except:
-            raise RuntimeError('Could not open fea file.')
-
     def read_preamble(self):
-        '''Read the ESPS file preamble.'''
-        self.fh.seek(0)
-        self.preamble = EspsPreamble._make(
-            struct.unpack(
-                self.preamble_fmt,
-                self.fh.read(struct.calcsize(self.preamble_fmt))
-            )
+        '''Read and return the ESPS file preamble and preamble format.'''
+        preamble = self.fh.read(32)
+        magic = preamble[16:20]
+        if magic == b'\x00\x00j\x1a':    # big endian
+            self.byte_order = '>'
+        elif magic == b'\x1aj\x00\x00':  # little endian
+            self.byte_order = '<'
+        preamble_fmt = self.byte_order + _preamble_fmt
+        return EspsPreamble._make(
+            struct.unpack(preamble_fmt, preamble)
         )
-    
+
     def read_fixpart(self):
         '''Read the fixed part of the ESPS header.'''
         fixpart = EspsFixpart._make(
@@ -449,16 +418,16 @@ class EspsFeaReader(object):
                     raise RuntimeError(msg)
         return hdr
 
-    def _read_string(self, slen):
-        '''Read a byte sequence of length slen into a Python string
-        from current read position of file handle.'''
-        sfmt = '{:d}s'.format(slen)
-        s = struct.unpack(
-            sfmt,
-            self.fh.read(struct.calcsize(sfmt))
-        )[0]  #.replace(b'\x00', b'').decode('ascii')
-# TODO: why does this choke? it gets char 128
-        return s
+#    def _read_string(self, slen):
+#        '''Read a byte sequence of length slen into a Python string
+#        from current read position of file handle.'''
+#        sfmt = '{:d}s'.format(slen)
+#        s = struct.unpack(
+#            sfmt,
+#            self.fh.read(struct.calcsize(sfmt))
+#        )[0]  #.replace(b'\x00', b'').decode('ascii')
+## TODO: why does this choke? it gets char 128
+#        return s
 
     def read_genhd(self):
         '''Read generic header.'''
@@ -500,6 +469,7 @@ class EspsFeaReader(object):
         '''Read header of a FEA_ANA file.'''
         print('fea_ana type')
 
+    # TODO: despite the name 'recursive_rh', recursion does not yet work.
     def recursive_rh(self, level=0):
         '''Read the file header.'''
         if level == 0:
@@ -533,8 +503,8 @@ class EspsFeaReader(object):
 
 class EspsSgramReader(EspsFeaReader):
     '''A class for reading ESPS .fspec files produced by the sgram command.'''
-    def __init__(self, fname=None, columns=None, open_mode='rb', *args, **kwargs):
-        super(EspsSgramReader, self).__init__(fname=fname, columns=columns,
+    def __init__(self, infile=None, columns=None, open_mode='rb', *args, **kwargs):
+        super(EspsSgramReader, self).__init__(infile=infile, columns=columns,
             open_mode=open_mode, *args, **kwargs)
 
     @property
@@ -562,14 +532,12 @@ class EspsSgramReader(EspsFeaReader):
 
     @property
     def data(self):
-        '''Return the data as a Pandas DataFrame.'''
-#        if self._data is None:
-        self.fh.seek(self.preamble.data_offset)
-#            self._data = pd.DataFrame.from_records(
-        return                np.fromfile(self.fh, self.fromfile_dtype)
-#            )
+        '''Return the data records.'''
+        if self._data is None:
+            self.fh.seek(self.preamble.data_offset)
+            self._data = np.fromfile(self.fh, self.fromfile_dtype)
 # TODO: check against nframes?
-#        return self._data
+        return self._data
 
     @property
     def sgram(self):
@@ -718,8 +686,8 @@ class EspsSgramReader(EspsFeaReader):
 class EspsFormantReader(EspsFeaReader):
     '''A class for reading ESPS .fb files produced by formant and rformant
 commands.'''
-    def __init__(self, fname=None, columns=None, open_mode='rb', *args, **kwargs):
-        super(EspsFormantReader, self).__init__(fname=fname, columns=columns,
+    def __init__(self, infile=None, columns=None, open_mode='rb', *args, **kwargs):
+        super(EspsFormantReader, self).__init__(infile=infile, columns=columns,
             open_mode=open_mode, *args, **kwargs)
         self.data.insert(loc=0, column='t1', value=self.t1)
 
