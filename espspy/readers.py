@@ -248,7 +248,7 @@ class EspsFeaReader(object):
             # read position of the filehandle at the start of the data.
             while self.fh.tell() < self.preamble.data_offset:
                 self.fh.read(1)
-        self._data = None
+        self.data = None
         self._fromfile_dtype = None
 
     # Context manager setup
@@ -516,11 +516,11 @@ class EspsSgramReader(EspsFeaReader):
         super(EspsSgramReader, self).__init__(infile=infile,
             open_mode=open_mode, *args, **kwargs)
         # Read the data records.
-        self._data = np.fromfile(self.fh, self.fromfile_dtype)
+        self.data = np.fromfile(self.fh, self.fromfile_dtype)
         self.check_data_read()
         bins = np.arange(self.num_freqs + 1, dtype=float)
         self._bins = bins * self.sf / self.fft_length
-        self._times = (np.arange(len(self._data)) / self.record_freq) + \
+        self._times = (np.arange(len(self.data)) / self.record_freq) + \
                    self.start_time
         self.data_view = self.set_data_view()
 
@@ -550,7 +550,7 @@ class EspsSgramReader(EspsFeaReader):
     @property
     def sgram(self):
         '''Return the spectrogram values of the current data view.'''
-        return self._data[:]['re_spec_val'][
+        return self.data[:]['re_spec_val'][
             self.data_view['t1idx']:self.data_view['t2idx'],
             self.data_view['hz1idx']:self.data_view['hz2idx']
         ].T
@@ -558,7 +558,7 @@ class EspsSgramReader(EspsFeaReader):
     @property
     def power(self):
         '''Return the power values of the current data view.'''
-        return self._data[:]['tot_power'][
+        return self.data[:]['tot_power'][
             self.data_view['t1idx']:self.data_view['t2idx'],
             self.data_view['hz1idx']:self.data_view['hz2idx']
         ]
@@ -570,7 +570,7 @@ class EspsSgramReader(EspsFeaReader):
 # The values seem to be related to the step size and I think indicates the
 # sample in the original audio file where the record is centered.
 # pplain reports this value as 'tag'.
-        return self._data[:]['tag'][
+        return self.data[:]['tag'][
             self.data_view['t1idx']:self.data_view['t2idx'],
             self.data_view['hz1idx']:self.data_view['hz2idx']
         ]
@@ -705,9 +705,9 @@ commands.'''
         super(EspsFormantReader, self).__init__(infile=infile,
             open_mode=open_mode, *args, **kwargs)
         # Read the data records.
-        self._data = np.fromfile(self.fh, self.fromfile_dtype)
+        self.data = np.fromfile(self.fh, self.fromfile_dtype)
         self.check_data_read()
-        self.df = pd.DataFrame.from_records(self._data)
+        self.df = pd.DataFrame.from_records(self.data)
         self.df.insert(loc=0, column='times', value=self.times)
 
     @property
@@ -721,7 +721,7 @@ commands.'''
     @property
     def times(self):
         frame_period = 1 / self.record_freq
-        return (np.arange(len(self._data)) * frame_period) + self.start_time
+        return (np.arange(len(self.data)) * frame_period) + self.start_time
 
     @property
     def fromfile_dtype(self):
