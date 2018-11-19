@@ -511,7 +511,7 @@ class EspsSgramReader(EspsFeaReader):
         self._bins = bins * self.sf / self.fft_length
         self._times = (np.arange(len(self.data)) / self.record_freq) + \
                    self.start_time
-        self.data_view = self.set_data_view()
+        self.set_data_view()
 
     @property
     def fromfile_dtype(self):
@@ -548,8 +548,7 @@ class EspsSgramReader(EspsFeaReader):
     def power(self):
         '''Return the power values of the current data view.'''
         return self.data[:]['tot_power'][
-            self.data_view['t1idx']:self.data_view['t2idx'],
-            self.data_view['hz1idx']:self.data_view['hz2idx']
+            self.data_view['t1idx']:self.data_view['t2idx']
         ]
 
     @property
