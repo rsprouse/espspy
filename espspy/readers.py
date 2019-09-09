@@ -262,6 +262,20 @@ class EspsFeaReader(object):
         '''Close filehandle.'''
         self.fh.close()
 
+# TODO: nrecs presumably will not work if self.fh is attached to
+# a pipe rather than a normal file. Think about how to handle the
+# situation.
+    @property
+    def nrecs(self):
+        '''The number of data records in the file.'''
+        datasize = os.stat(self.fh.name).st_size - self.preamble.data_offset
+        try:
+            assert(datasize % self.fromfile_dtype.itemsize == 0)
+        except AssertionError:
+            msg = 'Data area is not an integer multiple of record size.'
+            raise RuntimeError(msg)
+        return np.int_(datasize / self.fromfile_dtype.itemsize)
+
     @property
     def fromfile_dtype(self):
         '''To be implemented in derived class.'''
@@ -692,11 +706,7 @@ commands.'''
     def __init__(self, infile=None, open_mode='rb', *args, **kwargs):
         super(EspsFormantReader, self).__init__(infile=infile,
             open_mode=open_mode, *args, **kwargs)
-        # Read the data records.
-        self.data = np.fromfile(self.fh, self.fromfile_dtype)
-        self.check_data_read()
-        self.df = pd.DataFrame.from_records(self.data)
-        self.df.insert(loc=0, column='times', value=self.times)
+        self._times = None
 
     @property
     def record_freq(self):
@@ -708,8 +718,12 @@ commands.'''
     
     @property
     def times(self):
-        frame_period = 1 / self.record_freq
-        return (np.arange(len(self.data)) * frame_period) + self.start_time
+        if self._times is None:
+            frame_period = 1 / self.record_freq
+            self._times = \
+                (np.arange(self.nrecs) * frame_period) \
+                + self.start_time
+        return self._times
 
     @property
     def fromfile_dtype(self):
@@ -731,3 +745,27 @@ commands.'''
             )
         return self._fromfile_dtype
 
+    def get_df(self, t1=0.0, t2=np.Inf):
+        tidx = np.squeeze(np.nonzero((self.times >= t1) & (self.times <= t2)))
+        offset = (tidx[0] * self.fromfile_dtype.itemsize) \
+                 + self.preamble.data_offset
+        # Read the data records.
+        try:
+            data = np.fromfile(
+                self.fh,
+                self.fromfile_dtype,
+                count=len(tidx),
+                offset=offset   # numpy >= 1.17.0
+            )
+        except TypeError:
+            loc = self.fh.tell()
+            self.fh.seek(offset)
+            data = np.fromfile(
+                self.fh,
+                self.fromfile_dtype,
+                count=len(tidx)
+            )
+            self.fh.seek(loc)
+        df = pd.DataFrame.from_records(data)
+        df.insert(loc=0, column='times', value=self.times[tidx])
+        return df
