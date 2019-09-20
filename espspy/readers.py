@@ -270,11 +270,11 @@ class EspsFeaReader(object):
         '''The number of data records in the file.'''
         datasize = os.stat(self.fh.name).st_size - self.preamble.data_offset
         try:
-            assert(datasize % self.fromfile_dtype.itemsize == 0)
+            assert(datasize % self.preamble.record_size == 0)
         except AssertionError:
             msg = 'Data area is not an integer multiple of record size.'
             raise RuntimeError(msg)
-        return np.int_(datasize / self.fromfile_dtype.itemsize)
+        return np.int_(datasize / self.preamble.record_size)
 
     @property
     def fromfile_dtype(self):
@@ -737,17 +737,23 @@ commands.'''
             if self.hdr.feapart2.ndouble % 2 != 0:
                 raise RuntimeError('Found odd number of ndouble.')
             flds = []
-            for sublist in [[n] * 4 for n in self.hdr.names]:
+# TODO: The values in self.hdr.dimens in the .fb files I have seen so far
+# have equivalent values as self.hdr.sizes, and it's not entirely clear to
+# me which field should be used here. The esps docs on .fea files seem to
+# say that the sizes field is correct, but I'm not certain that that is
+# the correct interpretation.
+            n_and_sz = zip(self.hdr.names, self.hdr.sizes)
+            for sublist in [[n] * sz for n, sz in n_and_sz]:
                 for i, item in enumerate(sublist):
-                    flds.append('{:}{:d}'.format(item, i+1))
+                    flds.append(f'{item}{i+1:d}')
             self._fromfile_dtype = np.dtype(
                 [(fld, self.byte_order + 'f8') for fld in flds]
             )
         return self._fromfile_dtype
 
     def get_df(self, t1=0.0, t2=np.Inf):
-        tidx = np.squeeze(np.nonzero((self.times >= t1) & (self.times <= t2)))
-        offset = (tidx[0] * self.fromfile_dtype.itemsize) \
+        tidx = np.nonzero((self.times >= t1) & (self.times <= t2))[0]
+        offset = (tidx[0] * self.preamble.record_size) \
                  + self.preamble.data_offset
         # Read the data records.
         try:
