@@ -708,6 +708,24 @@ commands.'''
             open_mode=open_mode, *args, **kwargs)
         self._times = None
 
+    def __str__(self):
+        return f'''{type(self)}
+   {self.fh.name}
+   start time (genhd): {self.start_time}
+   record freq (genhd): {self.record_freq}
+   data offset (preamble): {self.preamble.data_offset}
+   record size (preamble): {self.preamble.record_size}
+   field count: {self.hdr.feapart1.field_count}
+   field order: {self.hdr.feapart1.field_order}
+   names: {self.hdr.names}
+   sizes: {self.hdr.sizes}
+   ranks: {self.hdr.ranks}
+   dimens: {self.hdr.dimens}
+   types: {self.hdr.types}
+   fromfile_dtype {self.fromfile_dtype}
+   fromfile_dtype size (should be the same as record size): {self.fromfile_dtype.itemsize}
+        '''
+
     @property
     def record_freq(self):
         return self.hdr.genhd.record_freq
