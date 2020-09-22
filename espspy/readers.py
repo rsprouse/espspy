@@ -262,6 +262,20 @@ class EspsFeaReader(object):
         '''Close filehandle.'''
         self.fh.close()
 
+# TODO: nrecs presumably will not work if self.fh is attached to
+# a pipe rather than a normal file. Think about how to handle the
+# situation.
+    @property
+    def nrecs(self):
+        '''The number of data records in the file.'''
+        datasize = os.stat(self.fh.name).st_size - self.preamble.data_offset
+        try:
+            assert(datasize % self.preamble.record_size == 0)
+        except AssertionError:
+            msg = 'Data area is not an integer multiple of record size.'
+            raise RuntimeError(msg)
+        return np.int_(datasize / self.preamble.record_size)
+
     @property
     def fromfile_dtype(self):
         '''To be implemented in derived class.'''
@@ -692,11 +706,25 @@ commands.'''
     def __init__(self, infile=None, open_mode='rb', *args, **kwargs):
         super(EspsFormantReader, self).__init__(infile=infile,
             open_mode=open_mode, *args, **kwargs)
-        # Read the data records.
-        self.data = np.fromfile(self.fh, self.fromfile_dtype)
-        self.check_data_read()
-        self.df = pd.DataFrame.from_records(self.data)
-        self.df.insert(loc=0, column='times', value=self.times)
+        self._times = None
+
+    def __str__(self):
+        return f'''{type(self)}
+   {self.fh.name}
+   start time (genhd): {self.start_time}
+   record freq (genhd): {self.record_freq}
+   data offset (preamble): {self.preamble.data_offset}
+   record size (preamble): {self.preamble.record_size}
+   field count: {self.hdr.feapart1.field_count}
+   field order: {self.hdr.feapart1.field_order}
+   names: {self.hdr.names}
+   sizes: {self.hdr.sizes}
+   ranks: {self.hdr.ranks}
+   dimens: {self.hdr.dimens}
+   types: {self.hdr.types}
+   fromfile_dtype {self.fromfile_dtype}
+   fromfile_dtype size (should be the same as record size): {self.fromfile_dtype.itemsize}
+        '''
 
     @property
     def record_freq(self):
@@ -708,8 +736,12 @@ commands.'''
     
     @property
     def times(self):
-        frame_period = 1 / self.record_freq
-        return (np.arange(len(self.data)) * frame_period) + self.start_time
+        if self._times is None:
+            frame_period = 1 / self.record_freq
+            self._times = \
+                (np.arange(self.nrecs) * frame_period) \
+                + self.start_time
+        return self._times
 
     @property
     def fromfile_dtype(self):
@@ -723,13 +755,44 @@ commands.'''
             if self.hdr.feapart2.ndouble % 2 != 0:
                 raise RuntimeError('Found odd number of ndouble.')
             flds = []
-            for sublist in [[n] * 4 for n in self.hdr.names]:
+# TODO: The values in self.hdr.dimens in the .fb files I have seen so far
+# have equivalent values as self.hdr.sizes, and it's not entirely clear to
+# me which field should be used here. The esps docs on .fea files seem to
+# say that the sizes field is correct, but I'm not certain that that is
+# the correct interpretation.
+            n_and_sz = zip(self.hdr.names, self.hdr.sizes)
+            for sublist in [[n] * sz for n, sz in n_and_sz]:
                 for i, item in enumerate(sublist):
-                    flds.append('{:}{:d}'.format(item, i+1))
+                    flds.append(f'{item}{i+1:d}')
             self._fromfile_dtype = np.dtype(
                 [(fld, self.byte_order + 'f8') for fld in flds]
             )
         return self._fromfile_dtype
+
+    def get_df(self, t1=0.0, t2=np.Inf):
+        tidx = np.nonzero((self.times >= t1) & (self.times <= t2))[0]
+        offset = (tidx[0] * self.preamble.record_size) \
+                 + self.preamble.data_offset
+        # Read the data records.
+        try:
+            data = np.fromfile(
+                self.fh,
+                self.fromfile_dtype,
+                count=len(tidx),
+                offset=offset   # numpy >= 1.17.0
+            )
+        except TypeError:
+            loc = self.fh.tell()
+            self.fh.seek(offset)
+            data = np.fromfile(
+                self.fh,
+                self.fromfile_dtype,
+                count=len(tidx)
+            )
+            self.fh.seek(loc)
+        df = pd.DataFrame.from_records(data)
+        df.insert(loc=0, column='times', value=self.times[tidx])
+        return df
 
 class EspsSdReader(EspsFeaReader):
     '''Read an .sd file (FEA_SD type).
