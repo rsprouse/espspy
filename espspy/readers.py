@@ -102,7 +102,7 @@ EspsFeaType = OrderedDict([
     (5, {'subtype': 'FEA_DST'}),    # quantized distortion file
     (6, {'subtype': 'FEA_2KB'}),
     (7, {'subtype': 'FEA_SPEC', 'hdr_func': 'read_fea_header'}),   # spectrum file
-    (8, {'subtype': 'FEA_SD', 'hdr_func': 'read_fea_sd_header'}), # sampled-data file
+    (8, {'subtype': 'FEA_SD', 'hdr_func': 'read_fea_header'}), # sampled-data file
     (9, {'subtype': 'FEA_FILT'}),  # filter file
 ])
 
@@ -731,3 +731,90 @@ commands.'''
             )
         return self._fromfile_dtype
 
+class EspsSdReader(EspsFeaReader):
+    '''Read an .sd file (FEA_SD type).
+
+    Channel data is in self.data['ch0'], self.data['ch1'], etc.
+    Sample rate is in self.record_freq.
+
+    Examples
+    --------
+
+    # Convert a mono .sd file to .wav.
+    >>> from espspy.readers import EspsSdReader
+    >>> from scipy.io import wavfile
+    >>> rdr = EspsSdReader('myfile.sd')
+    >>> wavfile.write('myfile.wav', int(rdr.record_freq), rdr.data['ch0'])
+    '''
+    def __init__(self, infile=None, open_mode='rb', *args, **kwargs):
+        super(EspsSdReader, self).__init__(infile=infile,
+            open_mode=open_mode, *args, **kwargs)
+        # Read the data records.
+        self.data = np.fromfile(self.fh, self.fromfile_dtype)
+        self.check_data_read()
+        self._times = (np.arange(len(self.data)) / self.record_freq) + \
+            self.start_time
+        self.set_data_view()
+
+    @property
+    def fromfile_dtype(self):
+        '''The dtypes for unpacking item records using np.fromfile().'''
+# TODO: Not sure this is right for all .sd files.
+        if self._fromfile_dtype is None or self._fromfile_dtype == []:
+            self._fromfile_dtype = []
+            flds = []
+            dt = {'ndouble': 'f8', 'nfloat': 'f4', 'nlong': 'i4', 'nshort': 'i2'}
+            for t,fmt in dt.items():
+                for n in np.arange(getattr(self.hdr.feapart2, t)):
+                    flds.append((f'ch{len(flds)}', f'{self.byte_order}{fmt}'))
+            self._fromfile_dtype = np.dtype(flds)
+        return self._fromfile_dtype
+
+    @property
+    def samples(self):
+        '''Return the sample values of the current data view.'''
+        return self.data[:]['re_spec_val'][
+            self.data_view['t1idx']:self.data_view['t2idx'],
+            self.data_view['hz1idx']:self.data_view['hz2idx']
+        ].T
+
+    @property
+    def times(self):
+        '''Return the timepoints of each spectral slice in sgram of the
+        current data view.'''
+        return self._times[self.data_view['t1idx']:self.data_view['t2idx']]
+
+    @property
+    def record_freq(self):
+        '''Return the record_freq value.'''
+        return self.hdr.genhd.record_freq
+
+    @property
+    def max_value(self):
+        '''Return the max_value value.'''
+        return self.hdr.genhd.max_value
+
+    @property
+    def samples(self):
+        '''Return the (number of) samples value.'''
+        return self.hdr.genhd.samples
+
+    @property
+    def start_time(self):
+        '''Return the start_time value.'''
+        return self.hdr.genhd.start_time
+
+    @property
+    def end_time(self):
+        '''Return the end_time value.'''
+        return self.hdr.genhd.end_time
+
+    def set_data_view(self, t1=0.0, t2=np.inf):
+        '''Set the time range that determines the values returned by data-related
+        properties.'''
+        t1idx = (np.abs(self._times - t1)).argmin()
+        if t2 != np.inf:
+            t2idx = (np.abs(self._times - t2)).argmin()
+        else:
+            t2idx = len(self._times) - 1
+        self.data_view = {'t1idx': t1idx, 't2idx': t2idx}
