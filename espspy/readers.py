@@ -752,8 +752,6 @@ commands.'''
 # TODO: check for other dtype than ndouble and throw error (or handle) if found
         if self._fromfile_dtype is None or self._fromfile_dtype == []:
             self._fromfile_dtype = []
-            if self.hdr.feapart2.ndouble % 2 != 0:
-                raise RuntimeError('Found odd number of ndouble.')
             flds = []
 # TODO: The values in self.hdr.dimens in the .fb files I have seen so far
 # have equivalent values as self.hdr.sizes, and it's not entirely clear to
